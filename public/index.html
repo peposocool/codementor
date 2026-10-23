@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patchwork — Debugging Workspace</title>
+  <meta name="description" content="A thoughtful second pair of eyes for the bugs that keep you up. Patchwork analyzes your code and explains the fix." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --background: #0b1329;
+      --foreground: #e8eefb;
+      --card: #0f1a36;
+      --muted: #182342;
+      --muted-foreground: #8995ad;
+      --border: #202e4f;
+      --primary: #50d7e8;
+      --cyan: #50d7e8;
+      --soft-cyan: #a4f1f5;
+      --panel-raised: #111d3a;
+      --surface: #0b142c;
+      --line: #1d2a48;
+      --radius: 12px;
+      --green: #66d9a5;
+      --red: #fa858d;
+      --amber: #f0c776;
+      --violet: #b6a2ff;
+      --font-mono: 'Geist Mono', monospace;
+      --font-sans: 'Inter', sans-serif;
+    }
+
+    html { min-width: 360px; background: var(--background); color-scheme: dark; }
+    body {
+      background: var(--background);
+      color: var(--foreground);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, select, textarea { font: inherit; color: inherit; }
+    button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+    /* ── Topbar ── */
+    .workbench-shell { min-height: 100vh; background: radial-gradient(ellipse at 48% 0%, rgba(31,72,125,.17), transparent 40%), var(--background); }
+    .topbar { height: 66px; border-bottom: 1px solid rgba(91,114,158,.15); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px,5vw,72px); }
+    .brand { color: #edf5ff; text-decoration: none; display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; letter-spacing: -.7px; }
+    .brand-mark { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid rgba(80,215,232,.34); background: rgba(80,215,232,.08); border-radius: 8px; color: var(--cyan); }
+    .brand-mark svg { width: 16px; height: 16px; }
+    .brand-period { color: var(--cyan); }
+    .brand-divider { width: 1px; height: 18px; background: #253250; margin: 0 5px; }
+    .brand-subtitle { font-size: 11px; letter-spacing: .04em; font-weight: 500; color: #7886a2; }
+    .topbar-right { display: flex; align-items: center; gap: 15px; }
+    .topbar-divider { width: 1px; height: 18px; background: #253250; }
+    .model-chip { border: 1px solid #223252; background: rgba(17,30,59,.76); border-radius: 99px; padding: 7px 11px; color: #aab7cf; font-size: 11px; display: flex; align-items: center; gap: 8px; }
+    .status-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px rgba(102,217,165,.45); }
+    .avatar-button { width: 30px; height: 30px; border: 1px solid #344261; border-radius: 50%; background: #172442; color: #cfdaec; font-size: 10px; font-weight: 700; cursor: pointer; display: grid; place-items: center; }
+
+    /* ── Workspace ── */
+    .workspace { max-width: 1320px; margin: 0 auto; padding: 49px 30px 24px; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 31px; flex-wrap: wrap; gap: 16px; }
+    .eyebrow { display: flex; align-items: center; gap: 9px; color: #8290aa; font-size: 9px; letter-spacing: .16em; font-weight: 700; margin-bottom: 17px; }
+    .eyebrow-rule { width: 19px; height: 1px; background: var(--cyan); }
+    .page-heading h1 { font-size: clamp(32px,4vw,45px); letter-spacing: -1.7px; line-height: 1.08; font-weight: 700; color: #f1f5ff; }
+    .page-heading h1 span { color: #8390aa; }
+    .heading-copy { color: #929eb6; font-size: 13px; margin: 13px 0 0; }
+    .session-note { display: flex; align-items: center; gap: 11px; padding: 11px 15px; background: rgba(17,29,56,.55); border: 1px solid #202d4c; border-radius: 10px; }
+    .session-note-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; background: rgba(80,215,232,.09); color: var(--cyan); }
+    .session-note-icon svg { width: 15px; height: 15px; }
+    .session-note strong { display: block; font-size: 10px; font-weight: 650; color: #d4dff1; }
+    .session-note small { display: block; color: #8290a8; font-size: 9px; margin-top: 3px; }
+
+    /* ── Metrics ── */
+    .metrics-strip { display: grid; grid-template-columns: 1fr 1.25fr 1fr 1.15fr; background: rgba(15,26,54,.78); border: 1px solid #202d4b; border-radius: 11px; margin-bottom: 18px; min-height: 63px; }
+    .metric-cell { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 17px; border-right: 1px solid #202d4b; min-width: 0; }
+    .metric-cell:last-child { border-right: 0; }
+    .metric-icon { width: 27px; height: 27px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; }
+    .metric-icon svg { width: 13px; height: 13px; }
+    .metric-icon.green { background: rgba(102,217,165,.08); }
+    .metric-icon.green .status-dot { width: 7px; height: 7px; }
+    .metric-icon.blue { color: #70baff; background: rgba(112,186,255,.1); }
+    .metric-icon.violet { color: var(--violet); background: rgba(182,162,255,.1); }
+    .metric-icon.amber { color: var(--amber); background: rgba(240,199,118,.1); }
+    .metric-label { color: #7b89a4; font-size: 8px; letter-spacing: .11em; font-weight: 700; white-space: nowrap; display: block; }
+    .metric-cell strong { color: #d5deef; font-size: 10px; font-weight: 600; white-space: nowrap; display: block; }
+    .metric-cell strong small { font-weight: 500; color: #8c9ab3; font-size: 9px; }
+    .metric-text { display: flex; flex-direction: column; gap: 2px; }
+    .feedback-actions { display: flex; gap: 4px; margin-left: auto; }
+    .feedback-actions button { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid transparent; background: transparent; color: #8592aa; border-radius: 6px; cursor: pointer; transition: color .15s, background .15s, border-color .15s; }
+    .feedback-actions button svg { width: 12px; height: 12px; }
+    .feedback-actions button:hover, .feedback-actions button.selected { color: var(--cyan); background: rgba(80,215,232,.08); border-color: rgba(80,215,232,.2); }
+
+    /* ── Grid ── */
+    .workspace-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: start; gap: 17px; }
+    .panel { min-width: 0; overflow: hidden; border: 1px solid #202d4b; border-radius: 12px; background: linear-gradient(145deg,rgba(16,28,56,.98),rgba(13,24,49,.98)); box-shadow: 0 14px 35px rgba(1,7,21,.15); }
+    .panel-heading { min-height: 73px; padding: 16px 19px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(43,59,92,.68); }
+    .panel-title-group { display: flex; align-items: center; gap: 12px; }
+    .panel-index { color: #60708f; font: 10px/1 var(--font-mono); padding-right: 11px; border-right: 1px solid #2a3856; }
+    .panel-title-group h2 { font-size: 13px; letter-spacing: -.1px; color: #e2eafa; font-weight: 650; }
+    .panel-title-group p { font-size: 10px; color: #7f8da7; margin: 4px 0 0; }
+    .icon-button { width: 29px; height: 29px; display: grid; place-items: center; cursor: pointer; color: #8693ad; background: #141f3b; border: 1px solid #253250; border-radius: 7px; transition: color .15s, border-color .15s; }
+    .icon-button svg { width: 12px; height: 12px; }
+    .icon-button:hover { color: var(--cyan); border-color: #3b7180; }
+
+    /* ── Editor ── */
+    .editor-controls { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 15px; border-bottom: 1px solid #1c2945; }
+    .select-label { color: #71809b; font-size: 8px; font-weight: 700; letter-spacing: .1em; white-space: nowrap; }
+    .select-wrap { position: relative; }
+    .select-wrap select { appearance: none; cursor: pointer; min-width: 105px; padding: 6px 25px 6px 9px; color: #c1cde0; border: 1px solid #293755; background: #121e3a; border-radius: 6px; font-size: 10px; }
+    .select-wrap .chevron { position: absolute; width: 11px; height: 11px; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #8794ad; }
+    .select-wrap option { background: #101a34; }
+    .control-spacer { flex: 1; }
+    .editor-window { margin: 12px 13px 13px; overflow: hidden; border: 1px solid #1f2c49; border-radius: 8px; background: #0b142b; }
+    .editor-filebar { height: 35px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #1a2743; color: #91a0b9; font: 9px/1 var(--font-mono); }
+    .editor-filebar svg { width: 12px; height: 12px; color: #72bfd1; }
+    .file-dot { width: 6px; height: 6px; border-radius: 50%; background: #e2a36b; }
+    .filebar-status { margin-left: auto; color: #76849c; font: 7px/1 var(--font-sans); letter-spacing: .08em; }
+    .editor-body { height: 249px; display: flex; overflow: auto; padding: 11px 0; }
+    .line-gutter { display: flex; flex-direction: column; flex: 0 0 42px; align-items: center; color: #4f5e7a; user-select: none; font: 11px/21px var(--font-mono); }
+    .line-gutter span { width: 100%; text-align: center; }
+    .code-editor { flex: 1; min-width: 480px; min-height: 100%; resize: none; border: 0; outline: 0; padding: 0 14px; overflow: auto; white-space: pre; color: #cedaf0; caret-color: var(--cyan); background: transparent; tab-size: 2; font: 11px/21px var(--font-mono); }
+    .editor-body:focus-within { box-shadow: inset 0 0 0 1px rgba(80,215,232,.13); }
+    .editor-footer { height: 29px; display: flex; align-items: center; gap: 14px; padding: 0 12px; border-top: 1px solid #1a2743; color: #6f7d97; font: 8px/1 var(--font-mono); }
+    .editor-footer span:first-child { display: flex; align-items: center; gap: 6px; margin-right: auto; }
+    .footer-dot { width: 5px; height: 5px; border-radius: 50%; background: #5e6d88; }
+    .analyze-button { width: calc(100% - 26px); min-height: 41px; margin: 0 13px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid #5ce3ef; border-radius: 7px; background: linear-gradient(115deg,#54dbea,#70e4e9); color: #092032; box-shadow: 0 4px 15px rgba(43,205,220,.12); font-size: 11px; font-weight: 750; cursor: pointer; transition: filter .15s, transform .15s; }
+    .analyze-button:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+    .analyze-button:disabled { opacity: .65; cursor: wait; }
+    .analyze-button svg { width: 14px; height: 14px; }
+    .private-note { margin: 10px 0 14px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #72809a; font-size: 8px; }
+    .lock-mark { color: #87a3bd; font-size: 10px; }
+    .error-message { margin: -5px 14px 10px; padding: 8px 10px; display: flex; align-items: center; gap: 7px; border: 1px solid rgba(250,133,141,.25); border-radius: 6px; background: rgba(250,133,141,.07); color: #ffadb3; font-size: 10px; }
+    .error-message svg { width: 13px; height: 13px; flex: 0 0 auto; }
+
+    /* ── Diagnosis ── */
+    .severity-pill { display: flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid rgba(240,199,118,.2); border-radius: 99px; background: rgba(240,199,118,.07); color: #e3c586; font-size: 8px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+    .severity-pill > span:first-child { width: 5px; height: 5px; background: #e6b95e; border-radius: 50%; }
+    .severity-low { border-color: rgba(102,217,165,.2); color: #84d8ac; background: rgba(102,217,165,.06); }
+    .severity-low > span:first-child { background: #66d9a5; }
+    .severity-high { border-color: rgba(250,133,141,.2); color: #ff9da5; background: rgba(250,133,141,.06); }
+    .severity-high > span:first-child { background: #fa858d; }
+    .diagnosis-content { padding: 15px; }
+    .summary-card { display: flex; gap: 11px; padding: 13px; border: 1px solid rgba(240,199,118,.18); border-radius: 8px; background: linear-gradient(105deg,rgba(112,82,34,.16),rgba(68,56,36,.08)); }
+    .summary-icon { flex: 0 0 auto; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; color: #e3bd6d; background: rgba(240,199,118,.1); }
+    .summary-icon svg { width: 13px; height: 13px; }
+    .summary-label { color: #be9d5a; font-size: 8px; font-weight: 700; letter-spacing: .12em; }
+    .summary-card p { color: #e2d3b2; font-size: 11px; line-height: 1.55; margin: 5px 0 0; }
+    .finding-list { display: flex; flex-direction: column; gap: 9px; margin-top: 11px; }
+    .finding-card { padding: 12px 13px; border: 1px solid #202f4e; border-radius: 8px; background: rgba(12,22,44,.57); }
+    .finding-meta { display: flex; align-items: center; gap: 9px; }
+    .finding-number { color: #62718f; font: 9px/1 var(--font-mono); }
+    .finding-line { display: flex; align-items: center; gap: 5px; color: #86a3c5; font: 9px/1 var(--font-mono); }
+    .line-dot { width: 5px; height: 5px; border-radius: 50%; background: #f0c776; }
+    .finding-card h3 { margin: 8px 0 4px; color: #e3ebf8; font-size: 11px; font-weight: 650; }
+    .finding-card > p { margin: 0; max-width: 500px; color: #9ca9bd; font-size: 10px; line-height: 1.55; }
+    .fix-note { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid #202d47; }
+    .fix-note > span { color: #64c6d2; font-size: 7px; font-weight: 750; letter-spacing: .1em; white-space: nowrap; }
+    .fix-note p { color: #c5d4e8; font: 9px/1.5 var(--font-mono); margin: 0; }
+    .reasoning-card { margin-top: 11px; padding: 12px 13px; border: 1px solid rgba(80,215,232,.15); border-radius: 8px; background: rgba(28,80,101,.09); }
+    .reasoning-heading { display: flex; align-items: center; gap: 7px; color: #7bdbe5; font-size: 8px; font-weight: 750; letter-spacing: .1em; }
+    .reasoning-heading svg { width: 12px; height: 12px; }
+    .reasoning-label { margin-left: auto; color: #6e8f9c; font-size: 7px; }
+    .reasoning-card ol { list-style: none; display: flex; flex-direction: column; gap: 7px; margin: 11px 0 0; padding: 0; }
+    .reasoning-card li { display: flex; gap: 9px; color: #aab8ca; font-size: 9px; line-height: 1.5; }
+    .reasoning-card li > span { color: #63aeb8; font: 9px/1.5 var(--font-mono); }
+    .no-findings { display: flex; align-items: center; gap: 9px; padding: 13px; color: #91bfa8; font-size: 10px; border: 1px solid rgba(102,217,165,.14); border-radius: 8px; background: rgba(102,217,165,.04); }
+    .no-findings svg { width: 15px; height: 15px; flex: 0 0 auto; }
+    .no-findings p { margin: 0; line-height: 1.5; }
+
+    /* ── Output ── */
+    .output-panel { grid-column: 1 / -1; }
+    .output-heading { min-height: 70px; }
+    .copy-button, .download-button { display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; border: 1px solid #2a3959; border-radius: 6px; background: #15213e; color: #b8c5d9; font-size: 9px; }
+    .copy-button { padding: 7px 10px; }
+    .copy-button:hover, .download-button:hover { border-color: #4b8795; color: var(--cyan); }
+    .copy-button svg, .download-button svg { width: 12px; height: 12px; }
+    .output-tabs { display: flex; height: 43px; align-items: stretch; gap: 21px; padding: 0 19px; border-bottom: 1px solid #202d4b; }
+    .output-tabs button { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 2px; border: 0; background: transparent; color: #8391aa; font-size: 9px; cursor: pointer; transition: color .15s; }
+    .output-tabs button svg { width: 12px; height: 12px; }
+    .output-tabs button.tab-active { color: #dce7f6; }
+    .output-tabs button.tab-active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--cyan); border-radius: 2px 2px 0 0; }
+    .tab-count { min-width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid #2a3957; border-radius: 99px; color: #9aabc1; font-size: 8px; }
+    .patch-view { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(210px,.75fr); gap: 0 18px; padding: 15px 17px 13px; }
+    .patch-filebar { grid-column: 1; display: flex; justify-content: space-between; align-items: center; padding: 0 2px 9px; }
+    .patch-file-name { display: flex; align-items: center; gap: 7px; color: #9fadc2; font: 9px/1 var(--font-mono); }
+    .patch-file-name svg { width: 12px; height: 12px; color: var(--cyan); }
+    .patch-change-count { color: #6dbb92; font: 8px/1 var(--font-mono); }
+    .code-block { grid-column: 1; max-height: 260px; overflow: auto; margin: 0; padding: 10px 0; border: 1px solid #202d49; border-radius: 7px; background: #0a1328; color: #c8d6e9; font: 10px/21px var(--font-mono); }
+    .code-block code { display: block; }
+    .code-row { display: flex; min-height: 21px; white-space: pre; }
+    .code-row-highlight { background: rgba(80,215,232,.07); }
+    .code-line-number { width: 40px; flex: 0 0 auto; text-align: center; color: #596783; border-right: 1px solid #1d2944; margin-right: 12px; }
+    .code-row-highlight .code-line-number { color: #6dd7df; border-right-color: #365c6a; }
+    .code-line-content { padding-right: 15px; }
+    .mentor-quote { position: relative; align-self: stretch; display: flex; flex-direction: column; justify-content: center; min-height: 120px; padding: 22px 22px 18px; border: 1px solid rgba(80,215,232,.12); border-radius: 7px; background: linear-gradient(140deg,rgba(22,72,95,.17),rgba(11,25,48,.3)); }
+    .quote-mark { position: absolute; top: 7px; left: 17px; color: rgba(80,215,232,.47); font: 36px/1 Georgia,serif; }
+    .mentor-quote p { margin: 13px 0 14px; max-width: 250px; color: #b5c8d9; font: italic 12px/1.65 Georgia,serif; }
+    .quote-byline { color: #6b9ba6; font-size: 7px; font-weight: 700; letter-spacing: .12em; }
+    .output-bottom { min-height: 37px; padding: 0 17px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #202d4b; }
+    .parser-log { display: flex; align-items: center; gap: 7px; color: #76859e; font-size: 7px; letter-spacing: .1em; }
+    .parser-log svg { width: 12px; height: 12px; color: #73b7c0; }
+    .parser-log code { margin-left: 4px; color: #96a7bd; font: 8px/1 var(--font-mono); letter-spacing: 0; }
+    .download-button { background: transparent; border-color: transparent; color: #8e9bb0; padding: 5px 7px; font-size: 8px; }
+
+    /* ── Sentinel ── */
+    .sentinel-section { margin-top: 22px; border: 1px solid rgba(250,133,141,.18); border-radius: 14px; background: linear-gradient(145deg,rgba(14,24,46,.98),rgba(12,20,42,.98)); overflow: hidden; box-shadow: 0 14px 35px rgba(1,7,21,.18); }
+    .sentinel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid rgba(250,133,141,.12); flex-wrap: wrap; }
+    .sentinel-title-group { display: flex; align-items: center; gap: 13px; }
+    .sentinel-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(250,133,141,.28); background: rgba(250,133,141,.08); border-radius: 9px; color: #fa858d; flex: 0 0 auto; }
+    .sentinel-icon svg { width: 17px; height: 17px; }
+    .sentinel-title-group h2 { font-size: 14px; font-weight: 700; color: #edf2ff; letter-spacing: -.2px; }
+    .sentinel-badge { font-size: 8px; font-weight: 700; letter-spacing: .1em; background: rgba(250,133,141,.1); border: 1px solid rgba(250,133,141,.2); color: #fa858d; border-radius: 4px; padding: 2px 5px; vertical-align: middle; margin-left: 6px; }
+    .sentinel-title-group p { font-size: 10px; color: #7f8da7; margin: 4px 0 0; }
+    .sentinel-header-right { display: flex; align-items: center; gap: 10px; }
+    .sentinel-run-button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border: 1px solid rgba(250,133,141,.45); border-radius: 7px; background: linear-gradient(115deg,rgba(250,120,130,.18),rgba(200,60,80,.12)); color: #ffadb3; font-size: 11px; font-weight: 700; cursor: pointer; transition: filter .15s, transform .15s; white-space: nowrap; }
+    .sentinel-run-button:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+    .sentinel-run-button:disabled { opacity: .55; cursor: wait; }
+    .sentinel-run-button svg { width: 14px; height: 14px; }
+    .risk-pill { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; border: 1px solid transparent; }
+    .risk-pill > span:first-child { width: 5px; height: 5px; border-radius: 50%; }
+    .risk-none { border-color: rgba(102,217,165,.2); color: #84d8ac; background: rgba(102,217,165,.07); }
+    .risk-none > span:first-child { background: #66d9a5; }
+    .risk-low { border-color: rgba(102,217,165,.2); color: #84d8ac; background: rgba(102,217,165,.07); }
+    .risk-low > span:first-child { background: #66d9a5; }
+    .risk-medium { border-color: rgba(240,199,118,.2); color: #e3c586; background: rgba(240,199,118,.07); }
+    .risk-medium > span:first-child { background: #f0c776; }
+    .risk-high { border-color: rgba(250,133,141,.2); color: #ff9da5; background: rgba(250,133,141,.06); }
+    .risk-high > span:first-child { background: #fa858d; }
+    .risk-critical { border-color: rgba(255,60,80,.3); color: #ff8090; background: rgba(255,60,80,.08); }
+    .risk-critical > span:first-child { background: #ff4050; box-shadow: 0 0 8px rgba(255,60,80,.5); }
+    .sentinel-error { margin: 12px 18px; }
+    .sentinel-placeholder { display: flex; align-items: center; gap: 13px; padding: 26px 22px; color: #7080a0; font-size: 11px; }
+    .sentinel-placeholder svg { width: 22px; height: 22px; flex: 0 0 auto; color: #506080; }
+    .sentinel-placeholder p { line-height: 1.6; }
+    .sentinel-placeholder strong { color: #ffadb3; }
+    .sentinel-body { padding: 0; }
+    .sentinel-summary-bar { display: flex; align-items: flex-start; gap: 10px; padding: 14px 22px; background: rgba(250,133,141,.04); border-bottom: 1px solid rgba(250,133,141,.1); }
+    .sentinel-summary-bar svg { width: 14px; height: 14px; color: #fa858d; flex: 0 0 auto; margin-top: 1px; }
+    .sentinel-summary-bar p { flex: 1; color: #c8d0e0; font-size: 11px; line-height: 1.55; margin: 0; }
+    .sentinel-latency { display: flex; align-items: center; gap: 5px; color: #6070a0; font: 8px/1 var(--font-mono); white-space: nowrap; }
+    .sentinel-latency svg { width: 10px; height: 10px; }
+    .sentinel-tabs { display: flex; height: 43px; align-items: stretch; gap: 21px; padding: 0 22px; border-bottom: 1px solid #202d4b; }
+    .sentinel-tabs button { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 2px; border: 0; background: transparent; color: #8391aa; font-size: 9px; cursor: pointer; transition: color .15s; }
+    .sentinel-tabs button svg { width: 12px; height: 12px; }
+    .sentinel-tabs button.tab-active { color: #ffbfc4; }
+    .sentinel-tabs button.tab-active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #fa858d; border-radius: 2px 2px 0 0; }
+    .vuln-list { display: flex; flex-direction: column; gap: 9px; padding: 14px 22px; }
+    .vuln-card { padding: 12px 13px; border: 1px solid rgba(250,133,141,.15); border-radius: 8px; background: rgba(30,12,16,.5); }
+    .vuln-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .vuln-severity-tag { padding: 2px 7px; border-radius: 4px; font: 7px/1.6 var(--font-sans); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .sev-low { background: rgba(102,217,165,.1); color: #66d9a5; }
+    .sev-medium { background: rgba(240,199,118,.1); color: #f0c776; }
+    .sev-high { background: rgba(250,133,141,.1); color: #fa858d; }
+    .sev-critical { background: rgba(255,60,80,.15); color: #ff6070; }
+    .vuln-cwe { color: #6080a0; font: 8px/1 var(--font-mono); }
+    .vuln-card h3 { margin: 8px 0 4px; color: #ffd0d4; font-size: 11px; font-weight: 650; }
+    .vuln-card > p { margin: 0; color: #9ca9bd; font-size: 10px; line-height: 1.55; }
+    .no-vulns { display: flex; align-items: center; gap: 9px; padding: 13px; color: #91bfa8; font-size: 10px; border: 1px solid rgba(102,217,165,.14); border-radius: 8px; background: rgba(102,217,165,.04); }
+    .no-vulns svg { width: 15px; height: 15px; flex: 0 0 auto; color: var(--green); }
+    .secure-view { padding: 14px 22px; }
+    .sec-checklist { display: flex; flex-direction: column; gap: 0; padding: 14px 22px; }
+    .sec-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #1a2640; font-size: 10px; color: #b0bdd0; }
+    .sec-check-row:last-child { border-bottom: 0; }
+    .check-pass { color: var(--green); display: flex; }
+    .check-pass svg { width: 14px; height: 14px; }
+    .check-fail { color: var(--red); display: flex; }
+    .check-fail svg { width: 14px; height: 14px; }
+
+    /* ── Footer ── */
+    .page-footer { display: flex; align-items: center; justify-content: space-between; padding: 20px 2px 0; color: #7886a0; font-size: 8px; letter-spacing: .08em; }
+    .footer-version { color: #596985; }
+    .page-footer > span:nth-child(2) { font-size: 9px; letter-spacing: 0; color: #71809a; }
+    .footer-online { display: flex; align-items: center; gap: 7px; font-size: 7px; }
+    .footer-online .status-dot { width: 5px; height: 5px; }
+
+    /* ── Spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; }
+
+    /* ── Responsive ── */
+    @media (min-width: 1100px) { .editor-panel, .diagnosis-panel { min-height: 470px; } }
+    @media (max-width: 800px) {
+      .workspace { padding: 38px 20px 22px; }
+      .metrics-strip { grid-template-columns: 1fr 1fr; }
+      .metric-cell:nth-child(2) { border-right: 0; }
+      .metric-cell:nth-child(-n+2) { border-bottom: 1px solid #202d4b; }
+      .workspace-grid { grid-template-columns: 1fr; }
+      .output-panel { grid-column: auto; }
+      .patch-view { grid-template-columns: 1fr; gap: 12px; }
+    }
+    @media (max-width: 540px) {
+      .topbar { height: 58px; padding: 0 15px; }
+      .brand-subtitle, .brand-divider, .topbar-divider { display: none; }
+      .workspace { padding: 31px 13px 18px; }
+      .page-heading { flex-direction: column; align-items: flex-start; }
+      .session-note { display: none; }
+    }
+  </style>
+</head>
+<body>
+<main class="workbench-shell">
+  <!-- Topbar -->
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Patchwork home">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </span>
+      <span>patchwork<span class="brand-period">.</span></span>
+      <span class="brand-divider"></span>
+      <span class="brand-subtitle">debugging workspace</span>
+    </a>
+    <div class="topbar-right">
+      <span class="model-chip"><span class="status-dot"></span> Gemini 2.0 Flash</span>
+      <span class="topbar-divider"></span>
+      <span class="avatar-button" role="img" aria-label="User">JD</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- Page heading -->
+    <div class="page-heading">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-rule"></span> CODE REVIEW / SESSION 04</div>
+        <h1>Find the bug.<br><span>Understand the fix.</span></h1>
+        <p class="heading-copy">A thoughtful second pair of eyes for the bugs that keep you up.</p>
+      </div>
+      <div class="session-note">
+        <span class="session-note-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </span>
+        <span><strong>Session is live</strong><small>Changes stay in this workspace</small></span>
+      </div>
+    </div>
+
+    <!-- Metrics strip -->
+    <section class="metrics-strip" aria-label="System status">
+      <div class="metric-cell">
+        <span class="metric-icon green"><span class="status-dot"></span></span>
+        <div class="metric-text"><span class="metric-label">MODEL</span><strong>Ready</strong></div>
+      </div>
+      <div class="metric-cell">
+        <span class="metric-icon blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        </span>
+        <div class="metric-text"><span class="metric-label">AST PARSER</span><strong id="parser-status">Connected</strong></div>
+      </div>
+      <div class="metric-cell">
+        <span class="metric-icon violet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <div class="metric-text"><span class="metric-label">LAST RESPONSE</span><strong id="latency-display">—</strong></div>
+      </div>
+      <div class="metric-cell" style="gap:8px;">
+        <span class="metric-icon amber">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>
+        </span>
+        <span class="metric-label">WAS THIS HELPFUL?</span>
+        <div class="feedback-actions">
+          <button id="fb-up" aria-label="Helpful" onclick="toggleFeedback('up')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>
+          </button>
+          <button id="fb-down" aria-label="Not helpful" onclick="toggleFeedback('down')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main grid -->
+    <div class="workspace-grid">
+      <!-- Panel 01: Editor -->
+      <section class="editor-panel panel" aria-labelledby="editor-title">
+        <div class="panel-heading editor-heading">
+          <div class="panel-title-group">
+            <span class="panel-index">01</span>
+            <div><h2 id="editor-title">Your code</h2><p>Start with a sample or paste your own.</p></div>
+          </div>
+          <button class="icon-button reset-button" aria-label="Reset to selected preset" onclick="resetCode()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+        </div>
+        <div class="editor-controls">
+          <label class="select-label" for="preset">BUG PRESET</label>
+          <div class="select-wrap">
+            <select id="preset" onchange="changePreset(this.value)">
+              <option value="logic">Logic error</option>
+              <option value="syntax">Syntax error</option>
+              <option value="recursion">Infinite recursion</option>
+            </select>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <span class="control-spacer"></span>
+          <label class="select-label" for="language">LANGUAGE</label>
+          <div class="select-wrap">
+            <select id="language" onchange="changeLanguage(this.value)">
+              <option value="javascript">JavaScript</option>
+              <option value="typescript">TypeScript</option>
+              <option value="python">Python</option>
+            </select>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="editor-window">
+          <div class="editor-filebar">
+            <span class="file-dot"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+            <span id="filename">untitled.js</span>
+            <span class="filebar-status">UNSAVED</span>
+          </div>
+          <div class="editor-body">
+            <div class="line-gutter" id="line-gutter" aria-hidden="true"></div>
+            <textarea class="code-editor" id="code-editor" aria-label="Code to analyze" spellcheck="false" autocapitalize="off" autocorrect="off" oninput="onCodeChange()"></textarea>
+          </div>
+          <div class="editor-footer">
+            <span><span class="footer-dot"></span> <span id="line-count">6</span> lines</span>
+            <span>UTF-8</span>
+            <span id="lang-label">JAVASCRIPT</span>
+          </div>
+        </div>
+        <div id="analyze-error" class="error-message" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="analyze-error-text"></span>
+        </div>
+        <button class="analyze-button" id="analyze-btn" onclick="analyze()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>
+          Find the bug
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+        <p class="private-note"><span class="lock-mark">◈</span> Your code is analyzed, never executed.</p>
+      </section>
+
+      <!-- Panel 02: Diagnosis -->
+      <section class="diagnosis-panel panel" aria-labelledby="diagnosis-title">
+        <div class="panel-heading diagnosis-heading">
+          <div class="panel-title-group">
+            <span class="panel-index">02</span>
+            <div><h2 id="diagnosis-title">Diagnosis</h2><p>A clear explanation, not just a patch.</p></div>
+          </div>
+          <span class="severity-pill severity-medium" id="severity-pill"><span></span><span id="severity-text">medium severity</span></span>
+        </div>
+        <div class="diagnosis-content">
+          <div class="summary-card">
+            <div class="summary-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div>
+              <span class="summary-label">THE SHORT VERSION</span>
+              <p id="summary-text">The discount is treated as a whole number instead of a percentage.</p>
+            </div>
+          </div>
+          <div class="finding-list" id="finding-list"></div>
+          <div class="reasoning-card">
+            <div class="reasoning-heading">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>
+              <span>MENTOR NOTES</span>
+              <span class="reasoning-label">STEP BY STEP</span>
+            </div>
+            <ol id="reasoning-list"></ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 03: Output -->
+      <section class="output-panel panel" aria-labelledby="output-title">
+        <div class="panel-heading output-heading">
+          <div class="panel-title-group">
+            <span class="panel-index">03</span>
+            <div><h2 id="output-title">The better version</h2><p>Review the patch or inspect a static check.</p></div>
+          </div>
+          <button class="copy-button" onclick="copyPatch()">
+            <svg id="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copy-label">Copy patch</span>
+          </button>
+        </div>
+        <div class="output-tabs" role="tablist">
+          <button id="tab-patch" role="tab" aria-selected="true" class="tab-active" onclick="switchTab('patch')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Refactored code
+          </button>
+          <button id="tab-tests" role="tab" aria-selected="false" onclick="switchTab('tests')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v11m0 0H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4M9 14l2 2 4-4"/></svg>
+            Test suite <span class="tab-count" id="test-count">3</span>
+          </button>
+        </div>
+        <div id="patch-view" class="patch-view">
+          <div class="patch-filebar">
+            <span class="patch-file-name">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span id="patch-filename">fixed.js</span>
+            </span>
+            <span class="patch-change-count" id="patch-change-count">1 change</span>
+          </div>
+          <pre class="code-block" id="fixed-code-block" aria-label="Corrected code"><code id="fixed-code-content"></code></pre>
+          <div class="mentor-quote">
+            <span class="quote-mark">"</span>
+            <p>A good fix should make the code easier to trust, not just harder to break.</p>
+            <span class="quote-byline">PATCHWORK MENTOR</span>
+          </div>
+        </div>
+        <div id="tests-view" style="display:none; padding:16px 18px 18px;">
+          <div class="test-intro">
+            <span class="test-intro-icon" style="width:25px;height:25px;display:grid;place-items:center;flex:0 0 auto;border-radius:7px;color:#7dd7dc;background:rgba(80,215,232,.09);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v11m0 0H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4M9 14l2 2 4-4"/></svg>
+            </span>
+            <div><h3 style="margin:0;color:#dbe5f4;font-size:10px;font-weight:650;">Static verification</h3><p style="margin:4px 0 0;color:#8795ad;font-size:9px;line-height:1.5;">Checks syntax structure and confirms the patch is different. Submitted code is never executed.</p></div>
+          </div>
+          <div id="suggested-tests" style="margin-top:15px;"></div>
+        </div>
+        <div class="output-bottom">
+          <div class="parser-log">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>AST LOG</span>
+            <code id="ast-log">source parsed</code>
+          </div>
+          <button class="download-button" onclick="downloadPatch()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download patch
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Sentinel: Security Review Agent -->
+    <section class="sentinel-section" aria-labelledby="sentinel-title">
+      <div class="sentinel-header">
+        <div class="sentinel-title-group">
+          <span class="sentinel-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          </span>
+          <div>
+            <h2 id="sentinel-title">Sentinel <span class="sentinel-badge">AGENT 02</span></h2>
+            <p>Security vulnerability scanner — OWASP Top 10 &amp; CWE analysis</p>
+          </div>
+        </div>
+        <div class="sentinel-header-right">
+          <span id="risk-pill" style="display:none;" class="risk-pill"><span></span><span id="risk-text"></span></span>
+          <button class="sentinel-run-button" id="sentinel-btn" onclick="runSecurityScan()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+            Run security scan
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="sentinel-error" class="error-message sentinel-error" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span id="sentinel-error-text"></span>
+      </div>
+      <div id="sentinel-placeholder" class="sentinel-placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        <p>Click <strong>Run security scan</strong> to have Sentinel check your code for vulnerabilities.</p>
+      </div>
+      <div id="sentinel-body" style="display:none;">
+        <div class="sentinel-summary-bar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          <p id="sentinel-summary"></p>
+          <span class="sentinel-latency" id="sentinel-latency">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span></span>
+          </span>
+        </div>
+        <div class="sentinel-tabs" role="tablist">
+          <button id="stab-vulns" role="tab" class="tab-active" onclick="switchSecTab('vulns')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+            Vulnerabilities <span class="tab-count" id="vuln-count">0</span>
+          </button>
+          <button id="stab-secure" role="tab" onclick="switchSecTab('secure')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Secure version
+          </button>
+          <button id="stab-checklist" role="tab" onclick="switchSecTab('checklist')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Checklist <span class="tab-count" id="checklist-count">0/0</span>
+          </button>
+        </div>
+        <div id="sec-vulns-view"><div class="vuln-list" id="vuln-list"></div></div>
+        <div id="sec-secure-view" style="display:none;" class="secure-view">
+          <div class="patch-filebar">
+            <span class="patch-file-name">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span id="secure-filename">secure.js</span>
+            </span>
+            <button class="copy-button" onclick="copySecure()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+            </button>
+          </div>
+          <pre class="code-block"><code id="secure-code-content"></code></pre>
+        </div>
+        <div id="sec-checklist-view" style="display:none;" class="sec-checklist" id="checklist-view"></div>
+      </div>
+    </section>
+
+    <footer class="page-footer">
+      <span>PATCHWORK <span class="footer-version">/ V 1.0</span></span>
+      <span>Curiosity is a debugging tool.</span>
+      <span class="footer-online"><span class="status-dot"></span> ALL SYSTEMS OPERATIONAL</span>
+    </footer>
+  </div>
+</main>
+
+<script>
+  // ── Data ──
+  const snippets = {
+    logic: {
+      javascript: `function calculateDiscount(price, discountPercent) {\n  const discount = price * discountPercent;\n  return price - discount;\n}\n\nconsole.log(calculateDiscount(100, 20)); // expected: 80`,
+      typescript: `function calculateDiscount(price: number, discountPercent: number): number {\n  const discount = price * discountPercent;\n  return price - discount;\n}\n\nconsole.log(calculateDiscount(100, 20)); // expected: 80`,
+      python: `def calculate_discount(price, discount_percent):\n    discount = price * discount_percent\n    return price - discount\n\nprint(calculate_discount(100, 20))  # expected: 80`,
+    },
+    syntax: {
+      javascript: `function greet(name) {\n  if (name.length > 0) {\n    return \`Hello, \${name}!\`;\n  else {\n    return "Hello, stranger!";\n  }\n}\n\nconsole.log(greet("Ada"));`,
+      typescript: `function greet(name: string): string {\n  if (name.length > 0) {\n    return \`Hello, \${name}!\`;\n  else {\n    return "Hello, stranger!";\n  }\n}\n\nconsole.log(greet("Ada"));`,
+      python: `def greet(name):\n    if len(name) > 0:\n        return f"Hello, {name}!"\n    else\n        return "Hello, stranger!"\n\nprint(greet("Ada"))`,
+    },
+    recursion: {
+      javascript: `function factorial(n) {\n  if (n === 0) return 1;\n  return n * factorial(n);\n}\n\nconsole.log(factorial(5));`,
+      typescript: `function factorial(n: number): number {\n  if (n === 0) return 1;\n  return n * factorial(n);\n}\n\nconsole.log(factorial(5));`,
+      python: `def factorial(n):\n    if n == 0:\n        return 1\n    return n * factorial(n)\n\nprint(factorial(5))`,
+    },
+  };
+
+  const initialDiagnosis = {
+    summary: 'The discount is treated as a whole number instead of a percentage.',
+    severity: 'medium',
+    findings: [{ line: 2, title: 'Percentage is not converted to a decimal', explanation: 'Multiplying 100 by 20 produces 2,000. A percentage needs to be divided by 100 before it is applied to the price.', fix: 'Divide discountPercent by 100 before multiplying it by price.' }],
+    reasoning: ['Trace the sample call: calculateDiscount(100, 20).', 'The discount expression evaluates to 100 × 20 = 2,000, not 20.', 'Subtracting 2,000 from 100 returns −1,900. Convert 20% to 0.2 first.'],
+    fixedCode: `function calculateDiscount(price, discountPercent) {\n  const discount = price * (discountPercent / 100);\n  return price - discount;\n}\n\nconsole.log(calculateDiscount(100, 20)); // expected: 80`,
+    tests: [{ name: '20% off $100', input: 'calculateDiscount(100, 20)', expected: '80' }, { name: '0% discount', input: 'calculateDiscount(80, 0)', expected: '80' }, { name: 'Full discount', input: 'calculateDiscount(50, 100)', expected: '0' }],
+    parser: { supported: true, errors: [] },
+    latencyMs: 428,
+  };
+
+  // ── State ──
+  let state = { preset: 'logic', language: 'javascript', source: snippets.logic.javascript, diagnosis: initialDiagnosis, securityReview: null, busy: false, secBusy: false, activeTab: 'patch', secTab: 'vulns', feedback: null };
+
+  // ── Init ──
+  (function init() {
+    setCode(state.source);
+    renderDiagnosis(state.diagnosis);
+  })();
+
+  // ── Helpers ──
+  function ext() { return state.language === 'python' ? 'py' : state.language === 'typescript' ? 'ts' : 'js'; }
+
+  function setCode(code) {
+    const textarea = document.getElementById('code-editor');
+    textarea.value = code;
+    updateGutter(code);
+    document.getElementById('line-count').textContent = code.split('\n').length;
+    document.getElementById('filename').textContent = `untitled.${ext()}`;
+    document.getElementById('lang-label').textContent = state.language.toUpperCase();
+    document.getElementById('patch-filename').textContent = `fixed.${ext()}`;
+    document.getElementById('secure-filename').textContent = `secure.${ext()}`;
+  }
+
+  function updateGutter(code) {
+    const gutter = document.getElementById('line-gutter');
+    const lines = code.split('\n');
+    gutter.innerHTML = lines.map((_, i) => `<span>${String(i+1).padStart(2,'0')}</span>`).join('');
+  }
+
+  function renderCodeBlock(el, code, highlightLine) {
+    const lines = code.split('\n');
+    el.innerHTML = lines.map((line, i) => {
+      const hl = highlightLine === i+1 ? ' code-row-highlight' : '';
+      return `<span class="code-row${hl}"><span class="code-line-number">${String(i+1).padStart(2,'0')}</span><span class="code-line-content">${escHtml(line || ' ')}</span></span>`;
+    }).join('');
+  }
+
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function renderDiagnosis(d) {
+    document.getElementById('summary-text').textContent = d.summary;
+    const pill = document.getElementById('severity-pill');
+    pill.className = `severity-pill severity-${d.severity}`;
+    document.getElementById('severity-text').textContent = `${d.severity} severity`;
+
+    const fl = document.getElementById('finding-list');
+    fl.innerHTML = d.findings.length === 0
+      ? `<div class="no-findings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>No specific issue found.</p></div>`
+      : d.findings.map((f,i) => `
+          <article class="finding-card">
+            <div class="finding-meta">
+              <span class="finding-number">0${i+1}</span>
+              <span class="finding-line"><span class="line-dot"></span> Line ${f.line}</span>
+            </div>
+            <h3>${escHtml(f.title)}</h3>
+            <p>${escHtml(f.explanation)}</p>
+            <div class="fix-note"><span>THE FIX</span><p>${escHtml(f.fix)}</p></div>
+          </article>`).join('');
+
+    const rl = document.getElementById('reasoning-list');
+    rl.innerHTML = d.reasoning.map((s,i) => `<li><span>${String(i+1).padStart(2,'0')}</span>${escHtml(s)}</li>`).join('');
+
+    const changes = d.findings.length;
+    document.getElementById('patch-change-count').textContent = `${changes} ${changes===1?'change':'changes'}`;
+    document.getElementById('test-count').textContent = d.tests.length;
+    document.getElementById('latency-display').innerHTML = d.latencyMs ? `${d.latencyMs} <small>ms</small>` : '—';
+    document.getElementById('ast-log').textContent = d.parser.supported ? (d.parser.errors.length ? `${d.parser.errors.length} parse warning${d.parser.errors.length===1?'':'s'}` : 'source parsed') : 'parser unavailable';
+
+    renderCodeBlock(document.getElementById('fixed-code-content'), d.fixedCode, d.findings[0]?.line);
+    renderTests(d.tests);
+  }
+
+  function renderTests(tests) {
+    const container = document.getElementById('suggested-tests');
+    container.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;color:#7c8ba4;font-size:7px;letter-spacing:.12em;font-weight:750;"><span>AI-SUGGESTED CASES</span><span style="color:#c29c63;">NOT EXECUTED</span></div>` +
+      tests.map((t,i) => `<div style="display:flex;align-items:center;gap:10px;min-height:42px;padding:7px 9px;border-bottom:1px solid #1d2a45;font-size:9px;">
+        <span style="color:#60708b;font-family:var(--font-mono);font-size:8px;">${String(i+1).padStart(2,'0')}</span>
+        <div style="flex:1;min-width:0;"><strong style="display:block;color:#bdc9da;font-size:9px;font-weight:600;">${escHtml(t.name)}</strong><code style="display:block;margin-top:3px;color:#8495ae;font-size:8px;font-family:var(--font-mono);">${escHtml(t.input)}</code></div>
+        <span style="color:#83cfa3;font-size:8px;font-family:var(--font-mono);white-space:nowrap;">→ ${escHtml(t.expected)}</span>
+      </div>`).join('');
+  }
+
+  // ── Actions ──
+  function onCodeChange() {
+    const code = document.getElementById('code-editor').value;
+    state.source = code;
+    updateGutter(code);
+    document.getElementById('line-count').textContent = code.split('\n').length;
+    state.securityReview = null;
+    document.getElementById('sentinel-body').style.display = 'none';
+    document.getElementById('sentinel-placeholder').style.display = 'flex';
+    document.getElementById('risk-pill').style.display = 'none';
+  }
+
+  function changePreset(v) {
+    state.preset = v;
+    state.source = snippets[v][state.language];
+    setCode(state.source);
+    state.securityReview = null;
+    document.getElementById('sentinel-body').style.display = 'none';
+    document.getElementById('sentinel-placeholder').style.display = 'flex';
+    document.getElementById('risk-pill').style.display = 'none';
+  }
+
+  function changeLanguage(v) {
+    state.language = v;
+    state.source = snippets[state.preset][v];
+    setCode(state.source);
+    document.getElementById('parser-status').textContent = v !== 'python' ? 'Connected' : 'Language fallback';
+  }
+
+  function resetCode() { changePreset(state.preset); }
+
+  function toggleFeedback(type) {
+    state.feedback = state.feedback === type ? null : type;
+    document.getElementById('fb-up').classList.toggle('selected', state.feedback === 'up');
+    document.getElementById('fb-down').classList.toggle('selected', state.feedback === 'down');
+  }
+
+  function switchTab(tab) {
+    state.activeTab = tab;
+    document.getElementById('patch-view').style.display = tab === 'patch' ? 'grid' : 'none';
+    document.getElementById('tests-view').style.display = tab === 'tests' ? 'block' : 'none';
+    document.getElementById('tab-patch').classList.toggle('tab-active', tab === 'patch');
+    document.getElementById('tab-tests').classList.toggle('tab-active', tab === 'tests');
+  }
+
+  function switchSecTab(tab) {
+    state.secTab = tab;
+    ['vulns','secure','checklist'].forEach(t => {
+      document.getElementById(`stab-${t}`).classList.toggle('tab-active', t === tab);
+      const el = document.getElementById(`sec-${t}-view`);
+      if (el) el.style.display = t === tab ? (t === 'checklist' ? 'flex' : t === 'vulns' ? 'block' : 'block') : 'none';
+    });
+    const cl = document.getElementById('sec-checklist-view');
+    if (cl) cl.style.display = tab === 'checklist' ? 'flex' : 'none';
+    if (tab === 'checklist') cl.style.flexDirection = 'column';
+  }
+
+  async function analyze() {
+    if (state.busy || !state.source.trim()) return;
+    state.busy = true;
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Reading through your code…`;
+    document.getElementById('analyze-error').style.display = 'none';
+    try {
+      const res = await fetch('/api/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: state.source, language: state.language }) });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || 'Diagnosis failed.');
+      state.diagnosis = payload;
+      renderDiagnosis(payload);
+      switchTab('patch');
+    } catch(e) {
+      const el = document.getElementById('analyze-error');
+      el.style.display = 'flex';
+      document.getElementById('analyze-error-text').textContent = e.message;
+    } finally {
+      state.busy = false;
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg> Find the bug <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+    }
+  }
+
+  async function runSecurityScan() {
+    if (state.secBusy || !state.source.trim()) return;
+    state.secBusy = true;
+    const btn = document.getElementById('sentinel-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Scanning…`;
+    document.getElementById('sentinel-error').style.display = 'none';
+    document.getElementById('sentinel-placeholder').style.display = 'none';
+    try {
+      const res = await fetch('/api/security-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: state.source, language: state.language }) });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || 'Security review failed.');
+      state.securityReview = payload;
+      renderSecurityReview(payload);
+    } catch(e) {
+      document.getElementById('sentinel-error').style.display = 'flex';
+      document.getElementById('sentinel-error-text').textContent = e.message;
+      document.getElementById('sentinel-placeholder').style.display = 'flex';
+    } finally {
+      state.secBusy = false;
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg> Run security scan <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+    }
+  }
+
+  function renderSecurityReview(r) {
+    document.getElementById('sentinel-body').style.display = 'block';
+    document.getElementById('sentinel-placeholder').style.display = 'none';
+    document.getElementById('sentinel-summary').textContent = r.summary;
+    const lat = document.getElementById('sentinel-latency');
+    lat.querySelector('span').textContent = ` ${r.latencyMs} ms`;
+
+    const rp = document.getElementById('risk-pill');
+    rp.className = `risk-pill risk-${r.overallRisk}`;
+    rp.style.display = 'flex';
+    rp.innerHTML = `<span></span><span>${r.overallRisk === 'none' ? 'No risk' : `${r.overallRisk} risk`}</span>`;
+    document.getElementById('vuln-count').textContent = r.vulnerabilities.length;
+
+    const passed = r.checklist.filter(c => c.passed).length;
+    document.getElementById('checklist-count').textContent = `${passed}/${r.checklist.length}`;
+
+    const vl = document.getElementById('vuln-list');
+    vl.innerHTML = r.vulnerabilities.length === 0
+      ? `<div class="no-vulns"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg><p>No vulnerabilities detected.</p></div>`
+      : r.vulnerabilities.map((v,i) => {
+          const dotColor = v.severity === 'critical' ? '#ff6b7a' : v.severity === 'high' ? '#fa858d' : v.severity === 'medium' ? '#f0c776' : '#66d9a5';
+          return `<article class="vuln-card"><div class="vuln-meta"><span class="finding-number">0${i+1}</span><span class="finding-line"><span class="line-dot" style="background:${dotColor}"></span> Line ${v.line}</span><span class="vuln-severity-tag sev-${v.severity}">${v.severity}</span><span class="vuln-cwe">${escHtml(v.cwe)}</span></div><h3>${escHtml(v.type)}</h3><p>${escHtml(v.description)}</p><div class="fix-note"><span>REMEDIATION</span><p>${escHtml(v.remediation)}</p></div></article>`;
+        }).join('');
+
+    renderCodeBlock(document.getElementById('secure-code-content'), r.secureVersion);
+
+    const cl = document.getElementById('sec-checklist-view');
+    cl.innerHTML = r.checklist.map(item => `
+      <div class="sec-check-row">
+        <span class="${item.passed ? 'check-pass' : 'check-fail'}">
+          ${item.passed
+            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+            : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`}
+        </span>
+        <span>${escHtml(item.item)}</span>
+      </div>`).join('');
+
+    switchSecTab('vulns');
+  }
+
+  function copyPatch() {
+    navigator.clipboard.writeText(state.diagnosis.fixedCode).then(() => {
+      document.getElementById('copy-label').textContent = 'Copied';
+      setTimeout(() => document.getElementById('copy-label').textContent = 'Copy patch', 1800);
+    });
+  }
+
+  function copySecure() {
+    if (!state.securityReview) return;
+    navigator.clipboard.writeText(state.securityReview.secureVersion);
+  }
+
+  function downloadPatch() {
+    const blob = new Blob([state.diagnosis.fixedCode], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `fixed.${ext()}`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Initial render
+  renderDiagnosis(initialDiagnosis);
+</script>
+</body>
+</html>
